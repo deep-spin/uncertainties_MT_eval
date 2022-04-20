@@ -1,0 +1,31 @@
+regression_metric:
+  class_path: comet.models.RegressionMetric
+  init_args:
+    nr_frozen_epochs: 0.3
+    keep_embeddings_frozen: True
+    keep_encoder_frozen: False
+    optimizer: AdamW
+    encoder_learning_rate: 1.0e-05
+    learning_rate: 3.1e-05
+    layerwise_decay: 0.95
+    encoder_model: XLM-RoBERTa
+    pretrained_model: xlm-roberta-large
+    pool: avg
+    layer: mix
+    dropout: 0.15
+    batch_size: 4
+    train_data: data/balanced/scores-2020_train_errors_cmtfeat.csv
+    validation_data: data/balanced/scores-2020_val_errors_cmtfeat.csv
+    hidden_sizes:
+      - 3072
+      - 1024
+    hidden_sizes_bottleneck: 
+      - 256
+    data_portion: 1.0
+    loss: hts_approx
+    feature_size: 1
+    #load_weights_from_checkpoint: /home/czerva/MT_QE/v2COMET/COMET_up/lightning_logs/version_80/checkpoints/epoch=1-step=28143.ckpt
+
+trainer: ../trainer.yaml
+early_stopping: ../early_stopping.yaml
+model_checkpoint: ../model_checkpoint.yaml

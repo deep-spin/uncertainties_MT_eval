@@ -31,7 +31,7 @@ We used COMET v1.0 as the basis for this extension.
 - To use a trained metric of a triplet of a source file <src.txt>, translation file <mt.txt> and reference file <ref.txt> and obtain predictions use:
 
     ```bash
-    comet-score -s src.txt -t mt.txt -r ref.txt
+    comet-score --model <path_to_trained_model> -s src.txt -t mt.txt -r ref.txt
     ```
 
 ## Description of configurations and command options
@@ -47,7 +47,7 @@ This model will use an MSE loss and will produce a single output for each segmen
 After having (any) trained COMET model you can apply MC Dropout during inference using the ```--mc_dropout``` and specify the desired number *N* of the forward stochastic runs during ```comet-score``` as follows:
 
 ```bash
-comet-score -s src.txt -t mt.txt -r ref.txt --mc_dropout N
+comet-score --model <path_to_trained_model> -s src.txt -t mt.txt -r ref.txt --mc_dropout N
 ```
 
 
@@ -76,6 +76,51 @@ There are two options to train COMET with aleatoric uncertainty prediction.
 To train a model on this data set the loss to "kl" in the configuration file. See [uncertainties_MT_eval/configs/models/regression_metric_comet_kl.yaml](../uncertainties_MT_eval/configs/models/regression_metric_comet_kl.yaml)
 
 
+### COMET-based direct uncertainty prediction (COMET-DUP)
+
+It is possible train a COMET model to predict the uncertainty of a given prediction (casting uncertainty as the error/distance to the human judgement), henceforth referred to as COMET-DUP. 
+
+#### **Training Setup:**
+
+To train a COMET-DUP model it is necessary to:
+
+- Have access to human judgements $q^*$ on a train dataset $\mathcal{D}$  
+- Run a MT Evaluation or MT Quality Estimation model to obtain quality predictions  $\hat{q}$ over $\mathcal{D}$
+- Calculate $\epsilon = |q^*-\hat{q}|$ for $\mathcal{D}$
+- Use $\epsilon$ as the target for the uncertainty predicting COMET, instead of the human quality judgements which is the default target
+
+Provide the training data in a csv file using a column **f1** that holds the values for the predicted quality scores $\hat{q}$ and a column **score** that contains the computed $\epsilon$ (target) for each <src, mt, ref> instance.
+
+#### **Losses**
+
+Upon calculating the above three different losses can be used for the COMET-DUP training:
+
+1. Typical MSE loss: $\mathcal{L}^\mathrm{E}_{\mathrm{ABS}}(\hat{\epsilon}; \epsilon^*) = (\epsilon^* - \hat{\epsilon})^2$\
+Specify loss: "mse" in the yaml configuration file to use it
+2. MSE loss with squared values: 
+   $\mathcal{L}^\mathrm{E}_{\mathrm{SQ}}(\hat{\epsilon}; \epsilon^*) = ((\epsilon^*)^2 - \hat{\epsilon}^2)^2 $
+Specify loss: "squared" in the yaml configuration file to use it
+3. Heteroschedastic approximation loss:  
+$\mathcal{L}^\mathrm{E}_{\mathrm{HTS}}(\hat{\epsilon}; \epsilon^*) = \frac{(\epsilon^*)^2}{2 \hat{\epsilon}^2} + \frac{1}{2}\log(\hat{\epsilon})^2$  
+Specify loss: "hts_approx" in the yaml configuration file to use it
+
+#### **Bottleneck**:
+COMET-DUP unlike COMET uses a bottleneck layer to incorporate the initial quality predictions $\hat{q}$ as training. You need to specify the the size of the bottleneck layer in the configuration file.  
+Recommended value: 256
+
+
+#### **Full Train Configuration**:
+For an example of a configuration file to train COMET-DUP with $\mathcal{L}^\mathrm{E}_{\mathrm{HTS}}$ see the file [uncertainties_MT_eval/configs/models/regression_metric_comet_dup.yaml](../uncertainties_MT_eval/configs/models/regression_metric_comet_dup.yaml)
+
+
+#### **Inference**
+
+For inference with COMET-DUP use the same inference command (`comet-score`) used for the other COMET models providing a trained COMET-DUP model in the `--model` option. Remember that the output in this case will be uncertainty scores instead of quality scores.
+
+<br>
+</br>
+
+***
 
 ## Related Publications
 

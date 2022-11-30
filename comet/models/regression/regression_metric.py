@@ -69,13 +69,12 @@ class RegressionMetric(CometModel):
         batch_size: int = 4,
         train_data: Optional[str] = None,
         validation_data: Optional[str] = None,
-        hidden_sizes_bottleneck: List[int] = [3072, 1024],
-        hidden_sizes: List[int] = [256],
+        hidden_sizes_bottleneck: List[int] = [2304, 256],
+        hidden_sizes: List[int] = [768],
         activations: str = "Tanh",
         final_activation: Optional[str] = None,
         load_weights_from_checkpoint: Optional[str] = None,
         loss: Optional[str]="mse",
-        data_portion: Optional[float] = 1.0,
         feature_size: Optional[int] = 0
     ) -> None:
         super().__init__(
@@ -98,10 +97,10 @@ class RegressionMetric(CometModel):
             "regression_metric",
         )
         self.save_hyperparameters()
-
-        if self.hparams.hidden_sizes_bottleneck[0]>0:
+        
+        if self.hparams.feature_size > 0:
             self.bottleneck = Bottleneck(
-                in_dim=self.encoder.output_units * 6 ,
+                in_dim=self.encoder.output_units * 6,
                 hidden_sizes = [self.hparams.hidden_sizes[0],self.hparams.hidden_sizes_bottleneck[-1]],
                 activations=self.hparams.activations,
                 dropout=self.hparams.dropout,
@@ -109,7 +108,7 @@ class RegressionMetric(CometModel):
 
             self.estimator = FeedForward(
                 in_dim=self.hparams.hidden_sizes_bottleneck[-1] + self.hparams.feature_size,
-                out_dim = 2 if self.hparams.loss in ["var", "hts"] else 1,
+                out_dim = 2 if self.hparams.loss in ["kl", "hts"] else 1,
                 hidden_sizes=[self.hparams.hidden_sizes[-1]],
                 activations=self.hparams.activations,
                 dropout=self.hparams.dropout,
@@ -118,11 +117,11 @@ class RegressionMetric(CometModel):
         else:
             self.estimator = FeedForward(
                 in_dim=self.encoder.output_units * 6,
-                out_dim = 2 if self.hparams.loss in ["var", "hts"] else 1,
                 hidden_sizes=self.hparams.hidden_sizes,
                 activations=self.hparams.activations,
                 dropout=self.hparams.dropout,
                 final_activation=self.hparams.final_activation,
+                out_dim=2 if self.hparams.loss in ["kl", "hts"] else 1,
             )
 
     def init_metrics(self):
@@ -142,7 +141,7 @@ class RegressionMetric(CometModel):
         top_layers_parameters = [
             {"params": self.estimator.parameters() , "lr": self.hparams.learning_rate}
         ]
-        if self.hparams.hidden_sizes_bottleneck[0]>0:
+        if self.hparams.feature_size>0:
             bott_layers_parameters = [
                 {"params": self.bottleneck.parameters() , "lr": self.hparams.learning_rate}
             ]
@@ -153,16 +152,12 @@ class RegressionMetric(CometModel):
                     "lr": self.hparams.learning_rate,
                 }
             ]
-            if self.hparams.hidden_sizes_bottleneck[0]>0:
-                params = layer_parameters + top_layers_parameters + bott_layers_parameters + layerwise_attn_params
-            else:
-                params = layer_parameters + top_layers_parameters + layerwise_attn_params
+            params = layer_parameters + top_layers_parameters + layerwise_attn_params
         else:
-            if self.hparams.hidden_sizes_bottleneck[0]>0:
-                params = layer_parameters + top_layers_parameters + bott_layers_parameters
-            else:
-                params = layer_parameters + top_layers_parameters
-
+            params = layer_parameters + top_layers_parameters 
+        if self.hparams.feature_size > 0:
+            params += bott_layers_parameters
+            
         optimizer = AdamW(
             params,
             lr=self.hparams.learning_rate,
@@ -172,7 +167,7 @@ class RegressionMetric(CometModel):
         return [optimizer], []
 
     def prepare_sample(
-        self, sample: List[Dict[str, Union[str, float]]], inference: bool = False, data_portion: float = 1.0,
+        self, sample: List[Dict[str, Union[str, float]]], inference: bool = False, 
     ) -> Union[
         Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]], Dict[str, torch.Tensor]
     ]:
@@ -199,13 +194,8 @@ class RegressionMetric(CometModel):
             for feat in sample:
                 if feat.startswith("f"):
                     feats.append(sample[feat])
-            #print(len(feats))
             feature_tensor = torch.as_tensor(feats, dtype=torch.float)
-            #print(feature_tensor.shape)
-            #print('------------------')
             features = {"custom_features": feature_tensor.T}
-
-            
         else:
             features = {"custom_features": torch.Tensor()}
 
@@ -241,32 +231,28 @@ class RegressionMetric(CometModel):
             (mt_sentemb, ref_sentemb, prod_ref, diff_ref, prod_src, diff_src),
             dim=1,
         )
-        if self.hparams.feature_size>0 and self.hparams.hidden_sizes_bottleneck[0]>0:
-            bottleneck = self.bottleneck(embedded_sequences) 
-            seq_feats = torch.cat((bottleneck,custom_features),dim=1)
-            score = self.estimator(seq_feats)
-        elif self.hparams.feature_size==0 and self.hparams.hidden_sizes_bottleneck[0]>0:
+        if self.hparams.feature_size>0:
             bottleneck = self.bottleneck(embedded_sequences)
-            score = self.estimator(bottleneck)
+            seq_feats = torch.cat((bottleneck,custom_features),dim=1)           
+            score = self.estimator(seq_feats)
         else:
-            #bottleneck = self.bottleneck(embedded_sequences)
             score = self.estimator(embedded_sequences)
-        if self.hparams.loss in ["var","hts"]:
+            
+        if self.hparams.loss in ["kl","hts"]:
             return {"score": score[:,0], "variance": score[:,1]}
-
         return {"score": score}
 
     def read_csv(self, path: str) -> List[dict]:
         """Reads a comma separated value file.
-
         :param path: path to a csv file.
-
         :return: List of records as dictionaries
         """
         feats=[]
         df = pd.read_csv(path)
         flen = self.hparams.feature_size
         columns = ["src", "mt", "ref", "score"]
+        if self.hparams.loss == 'kl':
+            columns.append("std")
         for i in range(flen):
             fstring='f'+str(i+1)
             print('feature added: '+str(fstring))

@@ -1,5 +1,5 @@
 # uncertainties_MT_eval
-Code and data for the paper: [Better Uncertainty Quantification for Machine Translation Evaluation](https://arxiv.org/pdf/2204.06546.pdf)
+Code and data for the paper: [Disentangling Uncertainty in Machine Translation Evaluation](https://arxiv.org/pdf/2204.06546.pdf)
 
 
 ## Quick Installation

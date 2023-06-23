@@ -4,7 +4,7 @@ Code and data for the paper: [Disentangling Uncertainty in Machine Translation E
 
 ## Quick Installation
 
-We using Python 3.8.
+We are using Python 3.8.
 
 Detailed usage examples and instructions for the COMET metric can be found in the [Full Documentation](https://unbabel.github.io/COMET/html/index.html).
 
